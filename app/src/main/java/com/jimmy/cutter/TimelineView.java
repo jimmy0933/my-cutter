@@ -22,6 +22,7 @@ public class TimelineView extends View {
     private long[] keyframes = new long[0];
     private final List<long[]> segments = new ArrayList<>();
     private OnSeek listener;
+    private boolean compact;
 
     private int colTrack = 0xFF2A2E36, colKey = 0xFF5F6673, colSeg = 0x6642D392,
             colSel = 0x55FF7043, colSelEdge = 0xFFFF7043, colHead = 0xFFFFFFFF;
@@ -29,6 +30,8 @@ public class TimelineView extends View {
     public TimelineView(Context c) { super(c); }
 
     public void setOnSeek(OnSeek l) { listener = l; }
+
+    public void setCompact(boolean c) { if (compact != c) { compact = c; requestLayout(); } }
 
     public void setData(long durationUs, long[] keyframes) {
         this.durationUs = Math.max(1, durationUs);
@@ -46,13 +49,14 @@ public class TimelineView extends View {
 
     @Override protected void onMeasure(int w, int h) {
         float d = getResources().getDisplayMetrics().density;
-        setMeasuredDimension(resolveSize(0, w), (int) (64 * d));
+        setMeasuredDimension(resolveSize(0, w), (int) ((compact ? 44 : 64) * d));
     }
 
     @Override protected void onDraw(Canvas c) {
         float d = getResources().getDisplayMetrics().density;
         float pad = 8 * d, left = pad, w = getWidth() - 2 * pad;
-        float top = 14 * d, bottom = getHeight() - 14 * d;
+        float m = (compact ? 10 : 14) * d;
+        float top = m, bottom = getHeight() - m;
 
         p.setStyle(Paint.Style.FILL);
         p.setColor(colTrack);

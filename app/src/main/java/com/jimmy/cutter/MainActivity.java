@@ -241,13 +241,19 @@ public class MainActivity extends Activity implements View.OnClickListener {
         timeLabel.setGravity(Gravity.CENTER);
         player.addView(timeLabel);
 
-        LinearLayout r1 = row();
+        LinearLayout r1 = ctrlRow = row();
         r1.setPadding(0, dp(10), 0, 0);
         btnPlay = button("▶ 播放", A_PLAY, 0);
         addWeighted(r1, button("[ 設為起點", A_START, 1));
         addWeighted(r1, btnPlay);
         addWeighted(r1, button("設為終點 ]", A_END, 1));
         player.addView(r1);
+
+        pickBar = row();
+        addWeighted(pickBar, button("影片庫", A_LIBRARY, 0));
+        addWeighted(pickBar, button("檔案", A_PICK, 1));
+        addWeighted(pickBar, button("相簿", A_GALLERY, 1));
+        addWeighted(pickBar, button("其他來源", A_CHOOSER, 1));
 
         // 選取
         LinearLayout sel = selCard = card();
@@ -301,7 +307,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         applyLayout();
     }
 
-    private LinearLayout header, pickCard, player, selCard, segCard, outCard;
+    private LinearLayout header, pickCard, player, selCard, segCard, outCard, pickBar, ctrlRow;
     private FrameLayout frame;
 
     private void detach(View v) {
@@ -315,25 +321,49 @@ public class MainActivity extends Activity implements View.OnClickListener {
         return lp;
     }
 
-    /** 直向：單欄捲動。橫向：左側預覽＋時間軸，右側控制面板（可捲動）。 */
+    /** 直向：單欄捲動。橫向：左側「選影片列＋預覽＋時間軸＋控制」，右側控制面板（可捲動）。 */
     private void applyLayout() {
         boolean land = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         // 重排版面會讓 VideoView 重建 surface，先記下播放狀態再還原
         int pos = video.getCurrentPosition();
         boolean playing = video.isPlaying();
 
-        View[] all = {header, pickCard, player, selCard, segCard, outCard};
+        View[] all = {header, pickCard, player, selCard, segCard, outCard, pickBar, timeLabel, infoLabel};
         for (View v : all) detach(v);
+        timeline.setCompact(land);
+        applyImmersive(land);
+
+        // 時間文字：橫向疊在預覽底部，直向放在時間軸下方
+        if (land) {
+            GradientDrawable tg = new GradientDrawable();
+            tg.setColor(0x99000000);
+            tg.setCornerRadius(dp(8));
+            timeLabel.setBackground(tg);
+            timeLabel.setTextSize(13);
+            timeLabel.setPadding(dp(8), dp(2), dp(8), dp(2));
+            frame.addView(timeLabel, new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
+            ctrlRow.setPadding(0, dp(4), 0, 0);
+        } else {
+            timeLabel.setBackground(null);
+            timeLabel.setTextSize(16);
+            timeLabel.setPadding(0, 0, 0, 0);
+            player.addView(timeLabel, 2, new LinearLayout.LayoutParams(-1, -2));
+            ctrlRow.setPadding(0, dp(10), 0, 0);
+        }
 
         if (land) {
             frame.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1f));
             LinearLayout root = new LinearLayout(this);
             root.setOrientation(LinearLayout.HORIZONTAL);
             root.setBackgroundColor(BG);
-            root.setPadding(dp(6), dp(6), dp(6), dp(6));
+            root.setPadding(dp(22), dp(4), dp(22), dp(4));
 
+            LinearLayout left = new LinearLayout(this);
+            left.setOrientation(LinearLayout.VERTICAL);
+            left.addView(pickBar, new LinearLayout.LayoutParams(-1, -2));
             player.setPadding(dp(6), dp(6), dp(6), dp(6));
-            root.addView(player, cardParams(0, -1, 3f, 0));
+            left.addView(player, cardParams(-1, 0, 1f, 4));
+            root.addView(left, new LinearLayout.LayoutParams(0, -1, 3f));
 
             ScrollView right = new ScrollView(this);
             LinearLayout col = new LinearLayout(this);
@@ -341,19 +371,18 @@ public class MainActivity extends Activity implements View.OnClickListener {
             col.setPadding(dp(12), 0, 0, dp(16));
             right.addView(col);
             col.addView(header, new LinearLayout.LayoutParams(-1, -2));
-            col.addView(pickCard, cardParams(-1, -2, 0f, 10));
+            infoLabel.setPadding(0, dp(8), 0, 0);
+            col.addView(infoLabel, new LinearLayout.LayoutParams(-1, -2));
             col.addView(selCard, cardParams(-1, -2, 0f, 10));
             col.addView(segCard, cardParams(-1, -2, 0f, 10));
             col.addView(outCard, cardParams(-1, -2, 0f, 10));
             root.addView(right, new LinearLayout.LayoutParams(0, -1, 1.15f));
             setContentView(root);
-            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         } else {
             frame.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(220)));
             player.setPadding(dp(8), dp(8), dp(8), dp(8));
-            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            infoLabel.setPadding(0, dp(10), 0, 0);
+            pickCard.addView(infoLabel);
             ScrollView scroll = new ScrollView(this);
             scroll.setBackgroundColor(BG);
             scroll.setFillViewport(true);
@@ -369,10 +398,37 @@ public class MainActivity extends Activity implements View.OnClickListener {
             root.addView(outCard, cardParams(-1, -2, 0f, 12));
             setContentView(scroll);
         }
+        applyImmersive(land);
 
         if (info != null && uri != null) {
             video.seekTo(pos);
             if (playing) video.start();
+        }
+    }
+
+    /** 橫向：隱藏狀態列／導覽列並延伸到鏡頭孔區域，讓預覽盡量大。 */
+    private void applyImmersive(boolean land) {
+        View d = getWindow().getDecorView();
+        if (land) {
+            d.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        } else {
+            d.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        }
+        try { // API 28+ 的欄位，編譯用的 android.jar 沒有，改用反射
+            android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.getClass().getField("layoutInDisplayCutoutMode")
+                    .setInt(lp, land ? (Build.VERSION.SDK_INT >= 30 ? 3 : 1) : 0);
+            getWindow().setAttributes(lp);
+        } catch (Throwable ignored) { }
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            applyImmersive(getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE);
         }
     }
 
