@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -184,23 +185,18 @@ public class MainActivity extends Activity implements View.OnClickListener {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(BG);
-        scroll.setFillViewport(true);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(16), dp(14), dp(28));
-        scroll.addView(root);
+        header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
 
         // 標題
         TextView title = text("無損剪輯", 24, TEXT, true);
-        root.addView(title);
+        header.addView(title);
         String ver = "";
         try { ver = " v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
-        root.addView(text("不重新編碼 · 畫質不變 · 檔案更小" + ver, 12, MUTED, false));
+        header.addView(text("不重新編碼 · 畫質不變 · 檔案更小" + ver, 12, MUTED, false));
 
         // 選擇來源
-        LinearLayout pickCard = card();
+        pickCard = card();
         pickCard.addView(text("選擇影片", 13, MUTED, false));
         LinearLayout pickRow = row();
         pickRow.setPadding(0, dp(8), 0, 0);
@@ -215,18 +211,17 @@ public class MainActivity extends Activity implements View.OnClickListener {
         infoLabel = text("尚未選擇影片", 12, MUTED, false);
         infoLabel.setPadding(0, dp(10), 0, 0);
         pickCard.addView(infoLabel);
-        root.addView(pickCard);
 
         // 預覽 + 時間軸
-        LinearLayout player = card();
+        player = card();
         player.setPadding(dp(8), dp(8), dp(8), dp(8));
-        FrameLayout frame = new FrameLayout(this);
+        frame = new FrameLayout(this);
         GradientDrawable fg = new GradientDrawable();
         fg.setColor(0xFF000000);
         fg.setCornerRadius(dp(12));
         frame.setBackground(fg);
         video = new VideoView(this);
-        frame.addView(video, new FrameLayout.LayoutParams(-1, dp(220), Gravity.CENTER));
+        frame.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         emptyHint = text("預覽區", 14, MUTED, false);
         frame.addView(emptyHint, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         player.addView(frame, new LinearLayout.LayoutParams(-1, dp(220)));
@@ -253,10 +248,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
         addWeighted(r1, btnPlay);
         addWeighted(r1, button("關鍵幀 ▶", A_NEXT, 1));
         player.addView(r1);
-        root.addView(player);
 
         // 選取
-        LinearLayout sel = card();
+        LinearLayout sel = selCard = card();
         sel.addView(text("剪輯範圍", 13, MUTED, false));
         selLabel = text("—", 18, TEXT, true);
         selLabel.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -271,18 +265,16 @@ public class MainActivity extends Activity implements View.OnClickListener {
         addWeighted(r3, button("＋ 加入片段", A_ADD, 0));
         sel.addView(r3);
         sel.addView(text("起點自動對齊關鍵幀；終點可在任意幀。", 11, MUTED, false));
-        root.addView(sel);
 
         // 片段列表
-        LinearLayout segCard = card();
+        segCard = card();
         segCard.addView(text("保留的片段（依序合併）", 13, MUTED, false));
         segList = new LinearLayout(this);
         segList.setOrientation(LinearLayout.VERTICAL);
         segCard.addView(segList);
-        root.addView(segCard);
 
         // 匯出
-        LinearLayout out = card();
+        LinearLayout out = outCard = card();
         out.addView(text("音軌（勾選要保留的；未勾選的會移除以瘦身）", 13, MUTED, false));
         audioBox = new LinearLayout(this);
         audioBox.setOrientation(LinearLayout.VERTICAL);
@@ -305,9 +297,82 @@ public class MainActivity extends Activity implements View.OnClickListener {
         status = text("", 13, TEXT, false);
         status.setPadding(0, dp(8), 0, 0);
         out.addView(status);
-        root.addView(out);
 
-        setContentView(scroll);
+        applyLayout();
+    }
+
+    private LinearLayout header, pickCard, player, selCard, segCard, outCard;
+    private FrameLayout frame;
+
+    private void detach(View v) {
+        ViewGroup p = (ViewGroup) v.getParent();
+        if (p != null) p.removeView(v);
+    }
+
+    private LinearLayout.LayoutParams cardParams(int w, int h, float weight, int topMarginDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h, weight);
+        lp.topMargin = dp(topMarginDp);
+        return lp;
+    }
+
+    /** 直向：單欄捲動。橫向：左側預覽＋時間軸，右側控制面板（可捲動）。 */
+    private void applyLayout() {
+        boolean land = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        // 重排版面會讓 VideoView 重建 surface，先記下播放狀態再還原
+        int pos = video.getCurrentPosition();
+        boolean playing = video.isPlaying();
+
+        View[] all = {header, pickCard, player, selCard, segCard, outCard};
+        for (View v : all) detach(v);
+
+        if (land) {
+            frame.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1f));
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.HORIZONTAL);
+            root.setBackgroundColor(BG);
+            root.setPadding(dp(14), dp(10), dp(14), dp(10));
+
+            root.addView(player, cardParams(0, -1, 1.25f, 0));
+
+            ScrollView right = new ScrollView(this);
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(dp(12), 0, 0, dp(16));
+            right.addView(col);
+            col.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            col.addView(pickCard, cardParams(-1, -2, 0f, 10));
+            col.addView(selCard, cardParams(-1, -2, 0f, 10));
+            col.addView(segCard, cardParams(-1, -2, 0f, 10));
+            col.addView(outCard, cardParams(-1, -2, 0f, 10));
+            root.addView(right, new LinearLayout.LayoutParams(0, -1, 1f));
+            setContentView(root);
+        } else {
+            frame.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(220)));
+            ScrollView scroll = new ScrollView(this);
+            scroll.setBackgroundColor(BG);
+            scroll.setFillViewport(true);
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setPadding(dp(14), dp(16), dp(14), dp(28));
+            scroll.addView(root);
+            root.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            root.addView(pickCard, cardParams(-1, -2, 0f, 12));
+            root.addView(player, cardParams(-1, -2, 0f, 12));
+            root.addView(selCard, cardParams(-1, -2, 0f, 12));
+            root.addView(segCard, cardParams(-1, -2, 0f, 12));
+            root.addView(outCard, cardParams(-1, -2, 0f, 12));
+            setContentView(scroll);
+        }
+
+        if (info != null && uri != null) {
+            video.seekTo(pos);
+            if (playing) video.start();
+        }
+    }
+
+    @Override public void onConfigurationChanged(Configuration c) {
+        super.onConfigurationChanged(c);
+        applyLayout();
     }
 
     private void showAudioTracks(VideoInfo vi) {
