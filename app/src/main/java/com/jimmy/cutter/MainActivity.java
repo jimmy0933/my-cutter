@@ -35,7 +35,7 @@ import java.util.Locale;
 public class MainActivity extends Activity implements View.OnClickListener {
     private static final int REQ_PICK = 1;
     private static final int A_PICK = 1, A_PLAY = 2, A_PREV = 3, A_NEXT = 4, A_START = 5,
-            A_END = 6, A_ADD = 7, A_EXPORT = 8;
+            A_END = 6, A_ADD = 7, A_EXPORT = 8, A_GALLERY = 9, A_CHOOSER = 10;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<long[]> segments = new ArrayList<>();
@@ -98,6 +98,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
     @Override public void onClick(View v) {
         switch (v.getId()) {
             case A_PICK: pick(); break;
+            case A_GALLERY: pickGallery(); break;
+            case A_CHOOSER: pickChooser(); break;
             case A_PLAY: togglePlay(); break;
             case A_PREV: jumpKeyframe(false); break;
             case A_NEXT: jumpKeyframe(true); break;
@@ -127,7 +129,11 @@ public class MainActivity extends Activity implements View.OnClickListener {
         root.setPadding(dp(12), dp(12), dp(12), dp(24));
         scroll.addView(root);
 
-        root.addView(button("選擇影片", A_PICK));
+        LinearLayout pickRow = row();
+        addWeighted(pickRow, button("檔案", A_PICK));
+        addWeighted(pickRow, button("相簿", A_GALLERY));
+        addWeighted(pickRow, button("其他來源", A_CHOOSER));
+        root.addView(pickRow);
 
         infoLabel = new TextView(this);
         infoLabel.setText("尚未選擇影片");
@@ -229,6 +235,25 @@ public class MainActivity extends Activity implements View.OnClickListener {
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("video/*");
         startActivityForResult(i, REQ_PICK);
+    }
+
+    /** 從媒體庫（相簿）選；在 Samsung 安全資料夾內會顯示該空間自己的相簿。 */
+    private void pickGallery() {
+        Intent i = new Intent(Intent.ACTION_PICK, MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+        i.setType("video/*");
+        try {
+            startActivityForResult(i, REQ_PICK);
+        } catch (Exception e) {
+            toast("找不到相簿應用程式，請改用其他來源");
+        }
+    }
+
+    /** 讓系統列出所有可選來源（含安全資料夾內的「我的檔案」等）。 */
+    private void pickChooser() {
+        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("video/*");
+        startActivityForResult(Intent.createChooser(i, "選擇影片來源"), REQ_PICK);
     }
 
     @Override protected void onActivityResult(int req, int res, Intent data) {
