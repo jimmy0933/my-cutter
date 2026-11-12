@@ -3,7 +3,11 @@ package com.jimmy.cutter;
 import android.app.Activity;
 import android.content.ContentValues;
 import android.content.Intent;
-import android.graphics.Color;
+import android.content.res.ColorStateList;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
@@ -19,7 +23,8 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
+import android.widget.FrameLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -46,7 +51,6 @@ public class MainActivity extends Activity implements View.OnClickListener {
     private boolean seeking;
 
     private VideoView video;
-    private SeekBar seek;
     private TextView timeLabel, infoLabel, selLabel, status;
     private Button btnPlay, btnExport;
     private LinearLayout segList;
@@ -56,7 +60,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         @Override public void run() {
             if (video != null && info != null && !seeking) {
                 int pos = video.getCurrentPosition();
-                seek.setProgress(pos);
+                timeline.setPositionMs(pos);
                 updateTime(pos);
             }
             ui.postDelayed(this, 150);
@@ -72,6 +76,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
             CrashReporter.save(this, t);
             throw new RuntimeException(t);
         }
+        refreshSegments();
         String last = CrashReporter.consume(this);
         if (last != null) status.setText("上次閃退原因（請截圖回報）：\n" + last);
         ui.post(ticker);
@@ -84,15 +89,77 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
     // ---------------------------------------------------------------- UI
 
-    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
+    private static final int BG = 0xFF0F1115, CARD = 0xFF1A1D23, ACCENT = 0xFFFF7043,
+            TEXT = 0xFFE8EAED, MUTED = 0xFF9AA0A6, TONAL = 0xFF2A2E36, GREEN = 0xFF42D392;
 
-    private Button button(String text, int action) {
+    private ProgressBar progress;
+    private TimelineView timeline;
+    private TextView emptyHint;
+
+    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    private Drawable round(int color, int radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radiusDp));
+        return new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), g, null);
+    }
+
+    private TextView text(String t, int sp, int color, boolean bold) {
+        TextView v = new TextView(this);
+        v.setText(t);
+        v.setTextSize(sp);
+        v.setTextColor(color);
+        if (bold) v.setTypeface(Typeface.DEFAULT_BOLD);
+        return v;
+    }
+
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(CARD);
+        g.setCornerRadius(dp(16));
+        c.setBackground(g);
+        c.setPadding(dp(14), dp(12), dp(14), dp(12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(12);
+        c.setLayoutParams(lp);
+        return c;
+    }
+
+    /** style: 0 = 主要（橘色實心）, 1 = 次要（深灰）, 2 = 危險/文字 */
+    private Button button(String label, int action, int style) {
         Button bt = new Button(this);
-        bt.setText(text);
+        bt.setText(label);
         bt.setAllCaps(false);
+        bt.setTextSize(14);
+        bt.setTypeface(Typeface.DEFAULT_BOLD);
+        bt.setTextColor(style == 0 ? 0xFF1A1208 : style == 1 ? TEXT : 0xFFFF8A80);
+        bt.setBackground(round(style == 0 ? ACCENT : TONAL, 12));
+        bt.setMinHeight(0);
+        bt.setMinimumHeight(0);
+        bt.setMinWidth(0);
+        bt.setMinimumWidth(0);
+        bt.setPadding(dp(10), dp(10), dp(10), dp(10));
+        bt.setStateListAnimator(null);
         bt.setId(action);
         bt.setOnClickListener(this);
         return bt;
+    }
+
+    private LinearLayout row() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        return r;
+    }
+
+    private void addWeighted(LinearLayout r, View v) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+        lp.leftMargin = dp(3);
+        lp.rightMargin = dp(3);
+        r.addView(v, lp);
     }
 
     @Override public void onClick(View v) {
@@ -111,117 +178,168 @@ public class MainActivity extends Activity implements View.OnClickListener {
         }
     }
 
-    private LinearLayout row() {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        return r;
-    }
-
-    private void addWeighted(LinearLayout r, View v) {
-        r.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-    }
-
     private void buildUi() {
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(BG);
+        scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(12), dp(12), dp(12), dp(24));
+        root.setPadding(dp(14), dp(16), dp(14), dp(28));
         scroll.addView(root);
 
+        // 標題
+        TextView title = text("無損剪輯", 24, TEXT, true);
+        root.addView(title);
+        root.addView(text("不重新編碼 · 畫質不變 · 檔案更小", 12, MUTED, false));
+
+        // 選擇來源
+        LinearLayout pickCard = card();
+        pickCard.addView(text("選擇影片", 13, MUTED, false));
         LinearLayout pickRow = row();
-        addWeighted(pickRow, button("檔案", A_PICK));
-        addWeighted(pickRow, button("相簿", A_GALLERY));
-        addWeighted(pickRow, button("其他來源", A_CHOOSER));
-        root.addView(pickRow);
+        pickRow.setPadding(0, dp(8), 0, 0);
+        addWeighted(pickRow, button("檔案", A_PICK, 0));
+        addWeighted(pickRow, button("相簿", A_GALLERY, 1));
+        addWeighted(pickRow, button("其他來源", A_CHOOSER, 1));
+        pickCard.addView(pickRow);
+        infoLabel = text("尚未選擇影片", 12, MUTED, false);
+        infoLabel.setPadding(0, dp(10), 0, 0);
+        pickCard.addView(infoLabel);
+        root.addView(pickCard);
 
-        infoLabel = new TextView(this);
-        infoLabel.setText("尚未選擇影片");
-        infoLabel.setTextSize(12);
-        root.addView(infoLabel);
-
+        // 預覽 + 時間軸
+        LinearLayout player = card();
+        player.setPadding(dp(8), dp(8), dp(8), dp(8));
+        FrameLayout frame = new FrameLayout(this);
+        GradientDrawable fg = new GradientDrawable();
+        fg.setColor(0xFF000000);
+        fg.setCornerRadius(dp(12));
+        frame.setBackground(fg);
         video = new VideoView(this);
-        root.addView(video, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220)));
+        frame.addView(video, new FrameLayout.LayoutParams(-1, dp(220), Gravity.CENTER));
+        emptyHint = text("預覽區", 14, MUTED, false);
+        frame.addView(emptyHint, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        player.addView(frame, new LinearLayout.LayoutParams(-1, dp(220)));
 
-        seek = new SeekBar(this);
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
-                if (fromUser) { video.seekTo(p); updateTime(p); }
+        timeline = new TimelineView(this);
+        timeline.setOnSeek(new TimelineView.OnSeek() {
+            @Override public void onSeek(int ms, boolean finished) {
+                seeking = !finished;
+                video.seekTo(ms);
+                updateTime(ms);
             }
-            @Override public void onStartTrackingTouch(SeekBar s) { seeking = true; }
-            @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; }
         });
-        root.addView(seek);
+        player.addView(timeline, new LinearLayout.LayoutParams(-1, -2));
 
-        timeLabel = new TextView(this);
+        timeLabel = text("00:00.000 / 00:00.000", 16, TEXT, true);
+        timeLabel.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         timeLabel.setGravity(Gravity.CENTER);
-        timeLabel.setText("00:00.000 / 00:00.000");
-        root.addView(timeLabel);
+        player.addView(timeLabel);
 
         LinearLayout r1 = row();
-        btnPlay = button("▶ 播放", A_PLAY);
+        r1.setPadding(0, dp(10), 0, 0);
+        btnPlay = button("▶ 播放", A_PLAY, 0);
+        addWeighted(r1, button("◀ 關鍵幀", A_PREV, 1));
         addWeighted(r1, btnPlay);
-        addWeighted(r1, button("◀ 上個關鍵幀", A_PREV));
-        addWeighted(r1, button("下個關鍵幀 ▶", A_NEXT));
-        root.addView(r1);
+        addWeighted(r1, button("關鍵幀 ▶", A_NEXT, 1));
+        player.addView(r1);
+        root.addView(player);
 
+        // 選取
+        LinearLayout sel = card();
+        sel.addView(text("剪輯範圍", 13, MUTED, false));
+        selLabel = text("—", 18, TEXT, true);
+        selLabel.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        selLabel.setPadding(0, dp(4), 0, dp(8));
+        sel.addView(selLabel);
         LinearLayout r2 = row();
-        addWeighted(r2, button("設為起點", A_START));
-        addWeighted(r2, button("設為終點", A_END));
-        root.addView(r2);
+        addWeighted(r2, button("[ 設為起點", A_START, 1));
+        addWeighted(r2, button("設為終點 ]", A_END, 1));
+        sel.addView(r2);
+        LinearLayout r3 = row();
+        r3.setPadding(0, dp(8), 0, 0);
+        addWeighted(r3, button("＋ 加入片段", A_ADD, 0));
+        sel.addView(r3);
+        sel.addView(text("起點自動對齊關鍵幀；終點可在任意幀。", 11, MUTED, false));
+        root.addView(sel);
 
-        selLabel = new TextView(this);
-        selLabel.setText("選取：—");
-        root.addView(selLabel);
-
-        root.addView(button("＋ 加入片段", A_ADD));
-
-        TextView h = new TextView(this);
-        h.setText("保留的片段（依序合併）");
-        h.setTextSize(14);
-        h.setPadding(0, dp(12), 0, dp(4));
-        root.addView(h);
+        // 片段列表
+        LinearLayout segCard = card();
+        segCard.addView(text("保留的片段（依序合併）", 13, MUTED, false));
         segList = new LinearLayout(this);
         segList.setOrientation(LinearLayout.VERTICAL);
-        root.addView(segList);
+        segCard.addView(segList);
+        root.addView(segCard);
 
+        // 匯出
+        LinearLayout out = card();
         keepAudio = new CheckBox(this);
-        keepAudio.setText("保留音訊（僅第一條音軌；其餘軌道與 metadata 會移除以瘦身）");
+        keepAudio.setText("保留音訊（僅第一條音軌；其餘軌道與 metadata 會移除）");
+        keepAudio.setTextColor(TEXT);
+        keepAudio.setTextSize(13);
         keepAudio.setChecked(true);
-        root.addView(keepAudio);
-
-        btnExport = button("無損匯出", A_EXPORT);
+        out.addView(keepAudio);
+        btnExport = button("無損匯出", A_EXPORT, 0);
+        btnExport.setTextSize(16);
         btnExport.setEnabled(false);
-        root.addView(btnExport);
-
-        status = new TextView(this);
+        btnExport.setAlpha(0.4f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(8);
+        out.addView(btnExport, lp);
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        progress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(-1, dp(6));
+        pl.topMargin = dp(10);
+        out.addView(progress, pl);
+        status = text("", 13, TEXT, false);
         status.setPadding(0, dp(8), 0, 0);
-        status.setTextColor(Color.DKGRAY);
-        root.addView(status);
+        out.addView(status);
+        root.addView(out);
 
         setContentView(scroll);
+    }
+
+    private void setExportEnabled(boolean on) {
+        btnExport.setEnabled(on);
+        btnExport.setAlpha(on ? 1f : 0.4f);
     }
 
     private void refreshSegments() {
         segList.removeAllViews();
         long sum = 0;
+        if (segments.isEmpty()) {
+            TextView t = text("還沒有片段，設定起點與終點後按「加入片段」。", 12, MUTED, false);
+            t.setPadding(0, dp(8), 0, 0);
+            segList.addView(t);
+        }
         for (int i = 0; i < segments.size(); i++) {
             final int idx = i;
             long[] s = segments.get(i);
             sum += s[1] - s[0];
             LinearLayout r = row();
-            TextView t = new TextView(this);
-            t.setText(String.format(Locale.US, "#%d  %s → %s  (%s)", i + 1, fmt(s[0]), fmt(s[1]), fmt(s[1] - s[0])));
-            addWeighted(r, t);
-            Button del = button("刪除", 100 + i);
+            r.setPadding(0, dp(8), 0, 0);
+            TextView badge = text(String.valueOf(i + 1), 12, 0xFF08130E, true);
+            badge.setGravity(Gravity.CENTER);
+            badge.setBackground(round(GREEN, 12));
+            r.addView(badge, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            TextView t = text(fmt(s[0]) + " → " + fmt(s[1]) + "  (" + fmt(s[1] - s[0]) + ")", 13, TEXT, false);
+            t.setTypeface(Typeface.MONOSPACE);
+            t.setPadding(dp(10), 0, 0, 0);
+            r.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
+            Button del = button("刪除", 100 + i, 2);
             del.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { segments.remove(idx); refreshSegments(); }
             });
             r.addView(del);
             segList.addView(r);
         }
-        btnExport.setEnabled(!segments.isEmpty());
-        if (!segments.isEmpty()) {
+        timeline.setSegments(segments);
+        setExportEnabled(!segments.isEmpty());
+        if (!segments.isEmpty() && info != null) {
             long est = info.durationUs > 0 ? (long) (info.sizeBytes * (sum / (double) info.durationUs)) : 0;
             status.setText(String.format(Locale.US, "合計 %s，預估輸出約 %s（原檔 %s）",
                     fmt(sum), size(est), size(info.sizeBytes)));
@@ -268,13 +386,13 @@ public class MainActivity extends Activity implements View.OnClickListener {
         info = null;
         segments.clear();
         refreshSegments();
-        btnExport.setEnabled(false);
+        setExportEnabled(false);
         status.setText("分析關鍵幀中…");
         infoLabel.setText("");
         video.setVideoURI(u);
         video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
             @Override public void onPrepared(MediaPlayer mp) {
-                seek.setMax(video.getDuration());
+                emptyHint.setVisibility(View.GONE);
                 btnPlay.setText("▶ 播放");
             }
         });
@@ -285,6 +403,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
                     ui.post(new Runnable() {
                         @Override public void run() {
                             info = vi;
+                            timeline.setData(vi.durationUs, vi.keyframes);
                             selStartUs = vi.keyframes.length > 0 ? vi.keyframes[0] : 0;
                             selEndUs = vi.durationUs;
                             infoLabel.setText(String.format(Locale.US, "%s｜%s｜%s｜關鍵幀 %d 個｜旋轉 %d°\n%s",
@@ -318,7 +437,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         btnPlay.setText("▶ 播放");
         int ms = (int) ((target + 999) / 1000);
         video.seekTo(ms);
-        seek.setProgress(ms);
+        timeline.setPositionMs(ms);
         updateTime(ms);
     }
 
@@ -346,7 +465,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
     }
 
     private void updateSel() {
-        selLabel.setText("選取：" + fmt(selStartUs) + " → " + fmt(selEndUs) + "（起點已對齊關鍵幀）");
+        selLabel.setText(fmt(selStartUs) + " → " + fmt(selEndUs));
+        timeline.setSelection(selStartUs, selEndUs);
     }
 
     private void updateTime(long ms) {
@@ -355,7 +475,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
     private void export() {
         if (info == null || segments.isEmpty()) return;
-        btnExport.setEnabled(false);
+        setExportEnabled(false);
+        progress.setProgress(0);
+        progress.setVisibility(View.VISIBLE);
         final boolean audio = keepAudio.isChecked();
         final List<long[]> segs = new ArrayList<>(segments);
         final VideoInfo vi = info;
@@ -371,6 +493,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
                                 @Override public void onProgress(final float f) {
                                     ui.post(new Runnable() {
                                         @Override public void run() {
+                                            progress.setProgress((int) (f * 100));
                                             status.setText(String.format(Locale.US, "匯出中 %d%%", (int) (f * 100)));
                                         }
                                     });
@@ -381,11 +504,11 @@ public class MainActivity extends Activity implements View.OnClickListener {
                             where, size(vi.sizeBytes), size(r.outBytes),
                             vi.sizeBytes > 0 ? (int) (100 - r.outBytes * 100.0 / vi.sizeBytes) : 0);
                     ui.post(new Runnable() {
-                        @Override public void run() { status.setText(msg); btnExport.setEnabled(true); }
+                        @Override public void run() { progress.setVisibility(View.GONE); status.setText(msg); setExportEnabled(true); }
                     });
                 } catch (final Exception e) {
                     ui.post(new Runnable() {
-                        @Override public void run() { status.setText("匯出失敗：" + e); btnExport.setEnabled(true); }
+                        @Override public void run() { progress.setVisibility(View.GONE); status.setText("匯出失敗：" + e); setExportEnabled(true); }
                     });
                 } finally {
                     //noinspection ResultOfMethodCallIgnored
