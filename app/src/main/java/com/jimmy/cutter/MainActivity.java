@@ -40,7 +40,7 @@ import java.util.Locale;
 public class MainActivity extends Activity implements View.OnClickListener {
     private static final int REQ_PICK = 1;
     private static final int A_PICK = 1, A_PLAY = 2, A_PREV = 3, A_NEXT = 4, A_START = 5,
-            A_END = 6, A_ADD = 7, A_EXPORT = 8, A_GALLERY = 9, A_CHOOSER = 10;
+            A_END = 6, A_ADD = 7, A_EXPORT = 8, A_GALLERY = 9, A_CHOOSER = 10, A_LIBRARY = 11;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<long[]> segments = new ArrayList<>();
@@ -165,6 +165,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
     @Override public void onClick(View v) {
         switch (v.getId()) {
+            case A_LIBRARY: startActivityForResult(new Intent(this, VideoPickerActivity.class), REQ_PICK); break;
             case A_PICK: pick(); break;
             case A_GALLERY: pickGallery(); break;
             case A_CHOOSER: pickChooser(); break;
@@ -194,17 +195,23 @@ public class MainActivity extends Activity implements View.OnClickListener {
         // 標題
         TextView title = text("無損剪輯", 24, TEXT, true);
         root.addView(title);
-        root.addView(text("不重新編碼 · 畫質不變 · 檔案更小", 12, MUTED, false));
+        String ver = "";
+        try { ver = " v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
+        root.addView(text("不重新編碼 · 畫質不變 · 檔案更小" + ver, 12, MUTED, false));
 
         // 選擇來源
         LinearLayout pickCard = card();
         pickCard.addView(text("選擇影片", 13, MUTED, false));
         LinearLayout pickRow = row();
         pickRow.setPadding(0, dp(8), 0, 0);
-        addWeighted(pickRow, button("檔案", A_PICK, 0));
-        addWeighted(pickRow, button("相簿", A_GALLERY, 1));
-        addWeighted(pickRow, button("其他來源", A_CHOOSER, 1));
+        addWeighted(pickRow, button("影片庫（推薦）", A_LIBRARY, 0));
         pickCard.addView(pickRow);
+        LinearLayout pickRow2 = row();
+        pickRow2.setPadding(0, dp(6), 0, 0);
+        addWeighted(pickRow2, button("檔案", A_PICK, 1));
+        addWeighted(pickRow2, button("相簿", A_GALLERY, 1));
+        addWeighted(pickRow2, button("其他來源", A_CHOOSER, 1));
+        pickCard.addView(pickRow2);
         infoLabel = text("尚未選擇影片", 12, MUTED, false);
         infoLabel.setPadding(0, dp(10), 0, 0);
         pickCard.addView(infoLabel);

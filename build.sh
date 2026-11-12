@@ -10,15 +10,19 @@ ANDROID_JAR=${ANDROID_JAR:-$SDK/platforms/android-23/android.jar}
 BT=${BUILD_TOOLS:-$SDK/build-tools/29.0.3}
 DX_JAR=${DX_JAR:-/usr/share/java/com.android.dx.jar}
 OUT=build
+VERSION_NAME=${VERSION_NAME:-1.0.0}
+VERSION_CODE=${VERSION_CODE:-1}
+APK=dist/my-cutter-v$VERSION_NAME.apk
 KEYSTORE=${KEYSTORE:-$HOME/.android/my-cutter.keystore}
 KEY_ALIAS=${KEY_ALIAS:-cutter}
 KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-android}
 KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
 
-rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/gen" dist
+rm -rf "$OUT" dist/*.apk; mkdir -p "$OUT/classes" "$OUT/gen" dist
 
 "$BT/aapt" package -f -m -J "$OUT/gen" -M app/src/main/AndroidManifest.xml \
-  -S app/src/main/res -I "$ANDROID_JAR" -F "$OUT/unsigned.apk" --min-sdk-version 24 --target-sdk-version 34
+  -S app/src/main/res -I "$ANDROID_JAR" -F "$OUT/unsigned.apk" --min-sdk-version 24 --target-sdk-version 34 \
+  --version-name "$VERSION_NAME" --version-code "$VERSION_CODE"
 
 javac --release 8 -Xlint:-options -classpath "$ANDROID_JAR" -d "$OUT/classes" \
   $(find app/src/main/java "$OUT/gen" -name '*.java')
@@ -36,6 +40,6 @@ if [ ! -f "$KEYSTORE" ]; then
 fi
 export KEYSTORE_PASSWORD KEY_PASSWORD
 apksigner sign --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
-  --out dist/my-cutter.apk "$OUT/aligned.apk"
-apksigner verify -v dist/my-cutter.apk | head -5
-ls -l dist/my-cutter.apk
+  --out "$APK" "$OUT/aligned.apk"
+apksigner verify -v "$APK" | head -5
+ls -l "$APK"

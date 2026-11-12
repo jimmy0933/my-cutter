@@ -1,3 +1,4 @@
 build/
 *.keystore
 javac.*.args
+dist/

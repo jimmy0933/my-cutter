@@ -2,6 +2,7 @@ name: Build APK
 
 on:
   push:
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -10,6 +11,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      VERSION_NAME: 1.0.${{ github.run_number }}
+      VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,24 +45,13 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: my-cutter-apk
-          path: dist/my-cutter.apk
+          name: my-cutter-v${{ env.VERSION_NAME }}
+          path: dist/*.apk
 
-      - name: Move "latest" tag to this commit
-        run: |
-          git tag -f latest "$GITHUB_SHA"
-          git push -f origin refs/tags/latest
-
-      - name: Publish to "latest" release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest build
-          prerelease: true
-          files: dist/my-cutter.apk
-
-      - name: Publish to versioned release (v* tags)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/my-cutter.apk
+          tag_name: v${{ env.VERSION_NAME }}
+          name: my-cutter v${{ env.VERSION_NAME }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*.apk

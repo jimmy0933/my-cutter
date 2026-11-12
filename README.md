@@ -18,7 +18,7 @@
 - minSdk 24（Android 7.0）。
 
 ## 建置
-推上 GitHub 會自動跑 Actions（`.github/workflows/build.yml`），到該次 run 的 Artifacts 下載 `my-cutter-apk`；同時會更新 Releases 頁面的 `latest`（最新一次 build 的 APK）；推 `v*` tag 則另外建立正式版 Release。
+推上 GitHub 會自動跑 Actions：版號為 `1.0.<run 編號>`，產出 `my-cutter-v<版號>.apk`，並建立同名 tag 的 Release（`v<版號>`），可在 Releases 頁面下載。
 
 本機建置：
 ```
