@@ -18,6 +18,9 @@
 - minSdk 26（Android 8.0）。
 
 ## 建置
+推上 GitHub 會自動跑 Actions（`.github/workflows/build.yml`），到該次 run 的 Artifacts 下載 `my-cutter-apk`；推 `v*` tag 則會附加到 Release。
+
+本機建置：
 ```
 ./build.sh        # 產出 dist/my-cutter.apk（簽章用本機 debug keystore）
 ```
