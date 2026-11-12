@@ -18,6 +18,9 @@ public class VideoInfo {
     public int rotation;
     public String containerMime = "";
     public String description = "";
+    /** 音軌的 extractor 索引與顯示說明（同序）。 */
+    public List<Integer> audioTracks = new ArrayList<>();
+    public List<String> audioDesc = new ArrayList<>();
     /** 影片軌的關鍵幀（sync sample）時間，單位微秒，遞增。 */
     public long[] keyframes = new long[0];
 
@@ -53,8 +56,20 @@ public class VideoInfo {
                         if (video < 0) video = i;
                         sb.append(String.format(Locale.US, " %dx%d",
                                 f.getInteger(MediaFormat.KEY_WIDTH), f.getInteger(MediaFormat.KEY_HEIGHT)));
-                    } else if (mime.startsWith("audio/") && f.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
-                        sb.append(" ").append(f.getInteger(MediaFormat.KEY_SAMPLE_RATE)).append("Hz");
+                    } else if (mime.startsWith("audio/")) {
+                        StringBuilder ad = new StringBuilder(mime.substring(6));
+                        if (f.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                            ad.append(' ').append(f.getInteger(MediaFormat.KEY_SAMPLE_RATE)).append("Hz");
+                            sb.append(" ").append(f.getInteger(MediaFormat.KEY_SAMPLE_RATE)).append("Hz");
+                        }
+                        if (f.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                            ad.append(' ').append(f.getInteger(MediaFormat.KEY_CHANNEL_COUNT)).append("ch");
+                        }
+                        if (f.containsKey(MediaFormat.KEY_LANGUAGE)) {
+                            ad.append(' ').append(f.getString(MediaFormat.KEY_LANGUAGE));
+                        }
+                        info.audioTracks.add(i);
+                        info.audioDesc.add(ad.toString());
                     }
                     sb.append('\n');
                 }

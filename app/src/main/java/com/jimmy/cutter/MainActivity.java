@@ -54,7 +54,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
     private TextView timeLabel, infoLabel, selLabel, status;
     private Button btnPlay, btnExport;
     private LinearLayout segList;
-    private CheckBox keepAudio;
+    private LinearLayout audioBox;
+    private final List<CheckBox> audioChecks = new ArrayList<>();
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -275,12 +276,11 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
         // 匯出
         LinearLayout out = card();
-        keepAudio = new CheckBox(this);
-        keepAudio.setText("保留音訊（僅第一條音軌；其餘軌道與 metadata 會移除）");
-        keepAudio.setTextColor(TEXT);
-        keepAudio.setTextSize(13);
-        keepAudio.setChecked(true);
-        out.addView(keepAudio);
+        out.addView(text("音軌（勾選要保留的；未勾選的會移除以瘦身）", 13, MUTED, false));
+        audioBox = new LinearLayout(this);
+        audioBox.setOrientation(LinearLayout.VERTICAL);
+        out.addView(audioBox);
+        showAudioTracks(null);
         btnExport = button("無損匯出", A_EXPORT, 0);
         btnExport.setTextSize(16);
         btnExport.setEnabled(false);
@@ -301,6 +301,27 @@ public class MainActivity extends Activity implements View.OnClickListener {
         root.addView(out);
 
         setContentView(scroll);
+    }
+
+    private void showAudioTracks(VideoInfo vi) {
+        audioBox.removeAllViews();
+        audioChecks.clear();
+        if (vi == null || vi.audioTracks.isEmpty()) {
+            TextView t = text(vi == null ? "選擇影片後顯示" : "此影片沒有音軌", 12, MUTED, false);
+            t.setPadding(0, dp(4), 0, dp(4));
+            audioBox.addView(t);
+            return;
+        }
+        for (int i = 0; i < vi.audioTracks.size(); i++) {
+            CheckBox cb = new CheckBox(this);
+            cb.setText("音軌 " + (i + 1) + "：" + vi.audioDesc.get(i));
+            cb.setTextColor(TEXT);
+            cb.setTextSize(13);
+            cb.setChecked(true);
+            cb.setTag(vi.audioTracks.get(i));
+            audioChecks.add(cb);
+            audioBox.addView(cb);
+        }
     }
 
     private void setExportEnabled(boolean on) {
@@ -403,6 +424,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
                     ui.post(new Runnable() {
                         @Override public void run() {
                             info = vi;
+                            showAudioTracks(vi);
                             timeline.setData(vi.durationUs, vi.keyframes);
                             selStartUs = vi.keyframes.length > 0 ? vi.keyframes[0] : 0;
                             selEndUs = vi.durationUs;
@@ -478,7 +500,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
         setExportEnabled(false);
         progress.setProgress(0);
         progress.setVisibility(View.VISIBLE);
-        final boolean audio = keepAudio.isChecked();
+        final java.util.Set<Integer> audio = new java.util.HashSet<>();
+        for (CheckBox cb : audioChecks) if (cb.isChecked()) audio.add((Integer) cb.getTag());
         final List<long[]> segs = new ArrayList<>(segments);
         final VideoInfo vi = info;
         final Uri src = uri;

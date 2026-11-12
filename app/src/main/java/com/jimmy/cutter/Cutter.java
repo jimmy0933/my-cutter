@@ -15,7 +15,7 @@ import java.util.List;
 /**
  * 無損剪輯：只做 stream copy（MediaExtractor -> MediaMuxer），不解碼、不重新編碼。
  * 起點必須是關鍵幀，片段會依序接在一起，輸出為同編碼、同容器（MP4 / WebM）。
- * 只保留第一條影片軌與（可選）第一條音軌，其餘軌道與 metadata 一律丟棄以瘦身。
+ * 只保留第一條影片軌與使用者勾選的音軌，其餘軌道與 metadata 一律丟棄以瘦身。
  */
 public final class Cutter {
     public interface Progress { void onProgress(float fraction); }
@@ -31,7 +31,7 @@ public final class Cutter {
 
     /** @param segments 每個元素 {startUs, endUs}，startUs 應為關鍵幀時間 */
     public static Result cut(Context ctx, Uri src, VideoInfo info, List<long[]> segments,
-                             boolean keepAudio, File out, Progress cb) throws Exception {
+                             java.util.Set<Integer> audioKeep, File out, Progress cb) throws Exception {
         int fmt = info.containerMime.contains("webm")
                 ? MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
                 : MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4;
@@ -51,13 +51,13 @@ public final class Cutter {
             int n = ex.getTrackCount();
             int[] map = new int[n];
             java.util.Arrays.fill(map, -1);
-            int videoTrack = -1, audioTrack = -1, bufSize = 1 << 20;
+            int videoTrack = -1, bufSize = 1 << 20;
             for (int i = 0; i < n; i++) {
                 MediaFormat f = ex.getTrackFormat(i);
                 String mime = f.getString(MediaFormat.KEY_MIME);
                 boolean take = false;
                 if (mime.startsWith("video/") && videoTrack < 0) { videoTrack = i; take = true; }
-                else if (keepAudio && mime.startsWith("audio/") && audioTrack < 0) { audioTrack = i; take = true; }
+                else if (mime.startsWith("audio/") && audioKeep.contains(i)) { take = true; }
                 if (take) {
                     map[i] = mux.addTrack(f);
                     ex.selectTrack(i);
@@ -80,16 +80,18 @@ public final class Cutter {
             for (long[] seg : segments) {
                 long s = seg[0], e = seg[1];
                 ex.seekTo(s, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
-                boolean videoDone = false, audioDone = audioTrack < 0;
+                boolean[] done = new boolean[n];
+                int remaining = res.keptTracks;
                 long lastVideo = s;
-                while (!(videoDone && audioDone)) {
+                while (remaining > 0) {
                     int ti = ex.getSampleTrackIndex();
                     if (ti < 0) break;
                     long t = ex.getSampleTime();
-                    if (map[ti] < 0) { ex.advance(); continue; }
+                    if (map[ti] < 0 || done[ti]) { ex.advance(); continue; }
                     boolean isVideo = ti == videoTrack;
                     if (t > e) {
-                        if (isVideo) videoDone = true; else audioDone = true;
+                        done[ti] = true;
+                        remaining--;
                         ex.advance();
                         continue;
                     }
