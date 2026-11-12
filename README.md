@@ -15,7 +15,7 @@
 - 輸出容器只支援 MP4 / WebM（Android `MediaMuxer` 的限制）；MKV、AVI、TS 等無法無損輸出。
 - 編碼需為 MediaMuxer 支援者（H.264、HEVC、VP8/9、AV1 視系統版本而定）。
 - 真正的「同編碼再壓縮」會有損，目前未提供。
-- minSdk 26（Android 8.0）。
+- minSdk 24（Android 7.0）。
 
 ## 建置
 推上 GitHub 會自動跑 Actions（`.github/workflows/build.yml`），到該次 run 的 Artifacts 下載 `my-cutter-apk`；同時會更新 Releases 頁面的 `latest`（最新一次 build 的 APK）；推 `v*` tag 則另外建立正式版 Release。

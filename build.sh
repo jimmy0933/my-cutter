@@ -18,12 +18,12 @@ KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
 rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/gen" dist
 
 "$BT/aapt" package -f -m -J "$OUT/gen" -M app/src/main/AndroidManifest.xml \
-  -S app/src/main/res -I "$ANDROID_JAR" -F "$OUT/unsigned.apk" --min-sdk-version 26 --target-sdk-version 34
+  -S app/src/main/res -I "$ANDROID_JAR" -F "$OUT/unsigned.apk" --min-sdk-version 24 --target-sdk-version 34
 
 javac --release 8 -Xlint:-options -classpath "$ANDROID_JAR" -d "$OUT/classes" \
   $(find app/src/main/java "$OUT/gen" -name '*.java')
 
-java -cp "$DX_JAR" com.android.dx.command.Main --dex --min-sdk-version=26 \
+java -cp "$DX_JAR" com.android.dx.command.Main --dex --min-sdk-version=24 \
   --output="$OUT/classes.dex" "$OUT/classes"
 
 ( cd "$OUT" && "$BT/aapt" add -f unsigned.apk classes.dex >/dev/null )

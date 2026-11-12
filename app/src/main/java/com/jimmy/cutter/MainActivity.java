@@ -32,8 +32,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements View.OnClickListener {
     private static final int REQ_PICK = 1;
+    private static final int A_PICK = 1, A_PLAY = 2, A_PREV = 3, A_NEXT = 4, A_START = 5,
+            A_END = 6, A_ADD = 7, A_EXPORT = 8;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<long[]> segments = new ArrayList<>();
@@ -63,7 +65,15 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
-        buildUi();
+        CrashReporter.install(this);
+        try {
+            buildUi();
+        } catch (Throwable t) {
+            CrashReporter.save(this, t);
+            throw new RuntimeException(t);
+        }
+        String last = CrashReporter.consume(this);
+        if (last != null) status.setText("上次閃退原因（請截圖回報）：\n" + last);
         ui.post(ticker);
     }
 
@@ -76,12 +86,27 @@ public class MainActivity extends Activity {
 
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density); }
 
-    private Button button(String text, View.OnClickListener l) {
+    private Button button(String text, int action) {
         Button bt = new Button(this);
         bt.setText(text);
         bt.setAllCaps(false);
-        bt.setOnClickListener(l);
+        bt.setId(action);
+        bt.setOnClickListener(this);
         return bt;
+    }
+
+    @Override public void onClick(View v) {
+        switch (v.getId()) {
+            case A_PICK: pick(); break;
+            case A_PLAY: togglePlay(); break;
+            case A_PREV: jumpKeyframe(false); break;
+            case A_NEXT: jumpKeyframe(true); break;
+            case A_START: setStart(); break;
+            case A_END: setEnd(); break;
+            case A_ADD: addSegment(); break;
+            case A_EXPORT: export(); break;
+            default: break;
+        }
     }
 
     private LinearLayout row() {
@@ -102,7 +127,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(12), dp(12), dp(12), dp(24));
         scroll.addView(root);
 
-        root.addView(button("選擇影片", v -> pick()));
+        root.addView(button("選擇影片", A_PICK));
 
         infoLabel = new TextView(this);
         infoLabel.setText("尚未選擇影片");
@@ -128,22 +153,22 @@ public class MainActivity extends Activity {
         root.addView(timeLabel);
 
         LinearLayout r1 = row();
-        btnPlay = button("▶ 播放", v -> togglePlay());
+        btnPlay = button("▶ 播放", A_PLAY);
         addWeighted(r1, btnPlay);
-        addWeighted(r1, button("◀ 上個關鍵幀", v -> jumpKeyframe(false)));
-        addWeighted(r1, button("下個關鍵幀 ▶", v -> jumpKeyframe(true)));
+        addWeighted(r1, button("◀ 上個關鍵幀", A_PREV));
+        addWeighted(r1, button("下個關鍵幀 ▶", A_NEXT));
         root.addView(r1);
 
         LinearLayout r2 = row();
-        addWeighted(r2, button("設為起點", v -> setStart()));
-        addWeighted(r2, button("設為終點", v -> setEnd()));
+        addWeighted(r2, button("設為起點", A_START));
+        addWeighted(r2, button("設為終點", A_END));
         root.addView(r2);
 
         selLabel = new TextView(this);
         selLabel.setText("選取：—");
         root.addView(selLabel);
 
-        root.addView(button("＋ 加入片段", v -> addSegment()));
+        root.addView(button("＋ 加入片段", A_ADD));
 
         TextView h = new TextView(this);
         h.setText("保留的片段（依序合併）");
@@ -159,7 +184,7 @@ public class MainActivity extends Activity {
         keepAudio.setChecked(true);
         root.addView(keepAudio);
 
-        btnExport = button("無損匯出", v -> export());
+        btnExport = button("無損匯出", A_EXPORT);
         btnExport.setEnabled(false);
         root.addView(btnExport);
 
@@ -182,7 +207,11 @@ public class MainActivity extends Activity {
             TextView t = new TextView(this);
             t.setText(String.format(Locale.US, "#%d  %s → %s  (%s)", i + 1, fmt(s[0]), fmt(s[1]), fmt(s[1] - s[0])));
             addWeighted(r, t);
-            r.addView(button("刪除", v -> { segments.remove(idx); refreshSegments(); }));
+            Button del = button("刪除", 100 + i);
+            del.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { segments.remove(idx); refreshSegments(); }
+            });
+            r.addView(del);
             segList.addView(r);
         }
         btnExport.setEnabled(!segments.isEmpty());
@@ -218,25 +247,33 @@ public class MainActivity extends Activity {
         status.setText("分析關鍵幀中…");
         infoLabel.setText("");
         video.setVideoURI(u);
-        video.setOnPreparedListener((MediaPlayer mp) -> {
-            seek.setMax(video.getDuration());
-            btnPlay.setText("▶ 播放");
+        video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+            @Override public void onPrepared(MediaPlayer mp) {
+                seek.setMax(video.getDuration());
+                btnPlay.setText("▶ 播放");
+            }
         });
-        new Thread(() -> {
-            try {
-                final VideoInfo vi = VideoInfo.analyze(this, u);
-                ui.post(() -> {
-                    info = vi;
-                    selStartUs = vi.keyframes.length > 0 ? vi.keyframes[0] : 0;
-                    selEndUs = vi.durationUs;
-                    infoLabel.setText(String.format(Locale.US, "%s｜%s｜%s｜關鍵幀 %d 個｜旋轉 %d°\n%s",
-                            vi.containerMime, size(vi.sizeBytes), fmt(vi.durationUs),
-                            vi.keyframes.length, vi.rotation, vi.description));
-                    updateSel();
-                    status.setText("起點會自動對齊到關鍵幀；終點可在任意幀。");
-                });
-            } catch (final Exception e) {
-                ui.post(() -> status.setText("分析失敗：" + e.getMessage()));
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    final VideoInfo vi = VideoInfo.analyze(MainActivity.this, u);
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            info = vi;
+                            selStartUs = vi.keyframes.length > 0 ? vi.keyframes[0] : 0;
+                            selEndUs = vi.durationUs;
+                            infoLabel.setText(String.format(Locale.US, "%s｜%s｜%s｜關鍵幀 %d 個｜旋轉 %d°\n%s",
+                                    vi.containerMime, size(vi.sizeBytes), fmt(vi.durationUs),
+                                    vi.keyframes.length, vi.rotation, vi.description));
+                            updateSel();
+                            status.setText("起點會自動對齊到關鍵幀；終點可在任意幀。");
+                        }
+                    });
+                } catch (final Exception e) {
+                    ui.post(new Runnable() {
+                        @Override public void run() { status.setText("分析失敗：" + e.getMessage()); }
+                    });
+                }
             }
         }).start();
     }
@@ -300,21 +337,35 @@ public class MainActivity extends Activity {
         final Uri src = uri;
         final boolean webm = vi.containerMime.contains("webm");
         status.setText("匯出中 0%");
-        new Thread(() -> {
-            File tmp = new File(getCacheDir(), "out_" + System.currentTimeMillis() + (webm ? ".webm" : ".mp4"));
-            try {
-                Cutter.Result r = Cutter.cut(this, src, vi, segs, audio, tmp,
-                        f -> ui.post(() -> status.setText(String.format(Locale.US, "匯出中 %d%%", (int) (f * 100)))));
-                final String where = publish(tmp, webm);
-                final String msg = String.format(Locale.US, "完成：%s\n原檔 %s → 輸出 %s（約省 %d%%）",
-                        where, size(vi.sizeBytes), size(r.outBytes),
-                        vi.sizeBytes > 0 ? (int) (100 - r.outBytes * 100.0 / vi.sizeBytes) : 0);
-                ui.post(() -> { status.setText(msg); btnExport.setEnabled(true); });
-            } catch (final Exception e) {
-                ui.post(() -> { status.setText("匯出失敗：" + e); btnExport.setEnabled(true); });
-            } finally {
-                //noinspection ResultOfMethodCallIgnored
-                tmp.delete();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                File tmp = new File(getCacheDir(), "out_" + System.currentTimeMillis() + (webm ? ".webm" : ".mp4"));
+                try {
+                    final Cutter.Result r = Cutter.cut(MainActivity.this, src, vi, segs, audio, tmp,
+                            new Cutter.Progress() {
+                                @Override public void onProgress(final float f) {
+                                    ui.post(new Runnable() {
+                                        @Override public void run() {
+                                            status.setText(String.format(Locale.US, "匯出中 %d%%", (int) (f * 100)));
+                                        }
+                                    });
+                                }
+                            });
+                    final String where = publish(tmp, webm);
+                    final String msg = String.format(Locale.US, "完成：%s\n原檔 %s → 輸出 %s（約省 %d%%）",
+                            where, size(vi.sizeBytes), size(r.outBytes),
+                            vi.sizeBytes > 0 ? (int) (100 - r.outBytes * 100.0 / vi.sizeBytes) : 0);
+                    ui.post(new Runnable() {
+                        @Override public void run() { status.setText(msg); btnExport.setEnabled(true); }
+                    });
+                } catch (final Exception e) {
+                    ui.post(new Runnable() {
+                        @Override public void run() { status.setText("匯出失敗：" + e); btnExport.setEnabled(true); }
+                    });
+                } finally {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.delete();
+                }
             }
         }).start();
     }
