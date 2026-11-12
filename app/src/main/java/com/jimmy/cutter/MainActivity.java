@@ -244,9 +244,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
         LinearLayout r1 = row();
         r1.setPadding(0, dp(10), 0, 0);
         btnPlay = button("▶ 播放", A_PLAY, 0);
-        addWeighted(r1, button("◀ 關鍵幀", A_PREV, 1));
+        addWeighted(r1, button("[ 設為起點", A_START, 1));
         addWeighted(r1, btnPlay);
-        addWeighted(r1, button("關鍵幀 ▶", A_NEXT, 1));
+        addWeighted(r1, button("設為終點 ]", A_END, 1));
         player.addView(r1);
 
         // 選取
@@ -257,8 +257,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
         selLabel.setPadding(0, dp(4), 0, dp(8));
         sel.addView(selLabel);
         LinearLayout r2 = row();
-        addWeighted(r2, button("[ 設為起點", A_START, 1));
-        addWeighted(r2, button("設為終點 ]", A_END, 1));
+        addWeighted(r2, button("◀ 上個關鍵幀", A_PREV, 1));
+        addWeighted(r2, button("下個關鍵幀 ▶", A_NEXT, 1));
         sel.addView(r2);
         LinearLayout r3 = row();
         r3.setPadding(0, dp(8), 0, 0);
@@ -330,9 +330,10 @@ public class MainActivity extends Activity implements View.OnClickListener {
             LinearLayout root = new LinearLayout(this);
             root.setOrientation(LinearLayout.HORIZONTAL);
             root.setBackgroundColor(BG);
-            root.setPadding(dp(14), dp(10), dp(14), dp(10));
+            root.setPadding(dp(6), dp(6), dp(6), dp(6));
 
-            root.addView(player, cardParams(0, -1, 1.25f, 0));
+            player.setPadding(dp(6), dp(6), dp(6), dp(6));
+            root.addView(player, cardParams(0, -1, 3f, 0));
 
             ScrollView right = new ScrollView(this);
             LinearLayout col = new LinearLayout(this);
@@ -344,10 +345,15 @@ public class MainActivity extends Activity implements View.OnClickListener {
             col.addView(selCard, cardParams(-1, -2, 0f, 10));
             col.addView(segCard, cardParams(-1, -2, 0f, 10));
             col.addView(outCard, cardParams(-1, -2, 0f, 10));
-            root.addView(right, new LinearLayout.LayoutParams(0, -1, 1f));
+            root.addView(right, new LinearLayout.LayoutParams(0, -1, 1.15f));
             setContentView(root);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         } else {
             frame.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(220)));
+            player.setPadding(dp(8), dp(8), dp(8), dp(8));
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
             ScrollView scroll = new ScrollView(this);
             scroll.setBackgroundColor(BG);
             scroll.setFillViewport(true);
