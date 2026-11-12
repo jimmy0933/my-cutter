@@ -44,7 +44,20 @@ jobs:
           name: my-cutter-apk
           path: dist/my-cutter.apk
 
-      - name: Publish to release (tags only)
+      - name: Move "latest" tag to this commit
+        run: |
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+
+      - name: Publish to "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          files: dist/my-cutter.apk
+
+      - name: Publish to versioned release (v* tags)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
