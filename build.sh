@@ -11,6 +11,9 @@ BT=${BUILD_TOOLS:-$SDK/build-tools/29.0.3}
 DX_JAR=${DX_JAR:-/usr/share/java/com.android.dx.jar}
 OUT=build
 KEYSTORE=${KEYSTORE:-$HOME/.android/my-cutter.keystore}
+KEY_ALIAS=${KEY_ALIAS:-cutter}
+KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-android}
+KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
 
 rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/gen" dist
 
@@ -28,10 +31,11 @@ java -cp "$DX_JAR" com.android.dx.command.Main --dex --min-sdk-version=26 \
 
 if [ ! -f "$KEYSTORE" ]; then
   mkdir -p "$(dirname "$KEYSTORE")"
-  keytool -genkeypair -keystore "$KEYSTORE" -alias cutter -keyalg RSA -keysize 2048 -validity 10000 \
-    -storepass android -keypass android -dname "CN=my-cutter"
+  keytool -genkeypair -keystore "$KEYSTORE" -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+    -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -dname "CN=my-cutter"
 fi
-apksigner sign --ks "$KEYSTORE" --ks-key-alias cutter --ks-pass pass:android --key-pass pass:android \
+export KEYSTORE_PASSWORD KEY_PASSWORD
+apksigner sign --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
   --out dist/my-cutter.apk "$OUT/aligned.apk"
 apksigner verify -v dist/my-cutter.apk | head -5
 ls -l dist/my-cutter.apk
