@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -55,3 +59,15 @@ jobs:
           name: my-cutter v${{ env.VERSION_NAME }}
           target_commitish: ${{ github.sha }}
           files: dist/*.apk
+
+      - name: Delete older releases and tags (keep only this one)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          keep="v${VERSION_NAME}"
+          gh release list --limit 200 --json tagName --jq '.[].tagName' | while read -r tag; do
+            if [ "$tag" != "$keep" ]; then
+              echo "Deleting release $tag"
+              gh release delete "$tag" --cleanup-tag --yes || true
+            fi
+          done
