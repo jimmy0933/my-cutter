@@ -21,7 +21,7 @@ KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
 rm -rf "$OUT" dist/*.apk; mkdir -p "$OUT/classes" "$OUT/gen" dist
 
 "$BT/aapt" package -f -m -J "$OUT/gen" -M app/src/main/AndroidManifest.xml \
-  -S app/src/main/res -I "$ANDROID_JAR" -F "$OUT/unsigned.apk" --min-sdk-version 24 --target-sdk-version 34 \
+  -S app/src/main/res -I "$ANDROID_JAR" -F "$OUT/unsigned.apk" --min-sdk-version 24 --target-sdk-version 33 \
   --version-name "$VERSION_NAME" --version-code "$VERSION_CODE"
 
 javac --release 8 -Xlint:-options -classpath "$ANDROID_JAR" -d "$OUT/classes" \

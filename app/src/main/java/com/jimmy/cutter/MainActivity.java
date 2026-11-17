@@ -581,6 +581,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
     }
 
     private void setExportEnabled(boolean on) {
+        on = on && !ExportService.running;
         btnExport.setEnabled(on);
         btnExport.setAlpha(on ? 1f : 0.4f);
     }
@@ -758,91 +759,71 @@ public class MainActivity extends Activity implements View.OnClickListener {
         timeLabel.setText(fmt(ms * 1000L) + " / " + fmt(info != null ? info.durationUs : 0));
     }
 
+    private final ExportService.Listener exportListener = new ExportService.Listener() {
+        @Override public void onProgress(float f) {
+            progress.setVisibility(View.VISIBLE);
+            progress.setProgress((int) (f * 100));
+            status.setText(String.format(Locale.US, "匯出中 %d%%（可切到背景或鎖屏）", (int) (f * 100)));
+        }
+        @Override public void onDone(String message) {
+            progress.setVisibility(View.GONE);
+            status.setText(message);
+            setExportEnabled(!segments.isEmpty());
+            toast("匯出完成");
+        }
+        @Override public void onError(String message) {
+            progress.setVisibility(View.GONE);
+            status.setText(message);
+            setExportEnabled(!segments.isEmpty());
+            toast("匯出失敗，請看日誌");
+        }
+    };
+
+    @Override protected void onStart() {
+        super.onStart();
+        ExportService.listener = exportListener;
+        syncExport();
+    }
+
+    @Override protected void onStop() {
+        if (ExportService.listener == exportListener) ExportService.listener = null;
+        super.onStop();
+    }
+
+    /** 回到前景時，同步背景匯出的狀態。 */
+    private void syncExport() {
+        if (ExportService.running) {
+            setExportEnabled(false);
+            progress.setVisibility(View.VISIBLE);
+            progress.setProgress((int) (ExportService.lastProgress * 100));
+            status.setText(String.format(Locale.US, "匯出中 %d%%（背景執行中）", (int) (ExportService.lastProgress * 100)));
+        } else if (ExportService.lastMessage != null) {
+            progress.setVisibility(View.GONE);
+            status.setText(ExportService.lastMessage);
+            ExportService.lastMessage = null;
+            setExportEnabled(!segments.isEmpty());
+        }
+    }
+
     private void export() {
         if (info == null || segments.isEmpty()) return;
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            // 需要通知權限才看得到背景進度；不論是否允許，匯出都會照常進行
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 9);
+        }
+        ExportService.Job job = new ExportService.Job();
+        job.uri = uri;
+        job.info = info;
+        job.segments = new ArrayList<>(segments);
+        job.audio = new java.util.HashSet<>();
+        for (CheckBox cb : audioChecks) if (cb.isChecked()) job.audio.add((Integer) cb.getTag());
+        AppLog.i("EXPORT", "按下匯出 片段數=" + job.segments.size() + " 音軌=" + job.audio);
+        if (!ExportService.start(this, job)) { toast("已有匯出正在進行"); return; }
         setExportEnabled(false);
         progress.setProgress(0);
         progress.setVisibility(View.VISIBLE);
-        final java.util.Set<Integer> audio = new java.util.HashSet<>();
-        for (CheckBox cb : audioChecks) if (cb.isChecked()) audio.add((Integer) cb.getTag());
-        final List<long[]> segs = new ArrayList<>(segments);
-        final VideoInfo vi = info;
-        final Uri src = uri;
-        final boolean webm = vi.containerMime.contains("webm");
-        AppLog.i("EXPORT", "按下匯出 片段數=" + segs.size() + " 音軌=" + audio);
-        status.setText("匯出中 0%");
-        new Thread(new Runnable() {
-            @Override public void run() {
-                File tmp = new File(getCacheDir(), "out_" + System.currentTimeMillis() + (webm ? ".webm" : ".mp4"));
-                try {
-                    final Cutter.Result r = Cutter.cut(MainActivity.this, src, vi, segs, audio, tmp,
-                            new Cutter.Progress() {
-                                @Override public void onProgress(final float f) {
-                                    ui.post(new Runnable() {
-                                        @Override public void run() {
-                                            progress.setProgress((int) (f * 100));
-                                            status.setText(String.format(Locale.US, "匯出中 %d%%", (int) (f * 100)));
-                                        }
-                                    });
-                                }
-                            });
-                    final String where = publish(tmp, webm);
-                    final String msg = String.format(Locale.US, "完成：%s\n原檔 %s → 輸出 %s（約省 %d%%）",
-                            where, size(vi.sizeBytes), size(r.outBytes),
-                            vi.sizeBytes > 0 ? (int) (100 - r.outBytes * 100.0 / vi.sizeBytes) : 0);
-                    AppLog.i("EXPORT", msg);
-                    ui.post(new Runnable() {
-                        @Override public void run() { progress.setVisibility(View.GONE); status.setText(msg); setExportEnabled(true); toast("匯出完成"); }
-                    });
-                } catch (final Exception e) {
-                    AppLog.e("EXPORT", "匯出失敗", e);
-                    ui.post(new Runnable() {
-                        @Override public void run() { progress.setVisibility(View.GONE); status.setText("匯出失敗：" + e + "\n（到右上角「設定」可複製日誌）"); setExportEnabled(true); toast("匯出失敗，請看日誌"); }
-                    });
-                } finally {
-                    //noinspection ResultOfMethodCallIgnored
-                    tmp.delete();
-                }
-            }
-        }).start();
-    }
-
-    /** 把暫存檔複製到公開的 Movies/MyCutter（Android 10+ 走 MediaStore），回傳位置描述。 */
-    private String publish(File tmp, boolean webm) throws Exception {
-        String name = "cut_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new java.util.Date())
-                + (webm ? ".webm" : ".mp4");
-        if (Build.VERSION.SDK_INT >= 29) {
-            ContentValues cv = new ContentValues();
-            cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-            cv.put(MediaStore.MediaColumns.MIME_TYPE, webm ? "video/webm" : "video/mp4");
-            cv.put("relative_path", Environment.DIRECTORY_MOVIES + "/MyCutter");
-            cv.put("is_pending", 1);
-            Uri out = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
-            if (out == null) throw new IllegalStateException("無法建立輸出檔");
-            try (InputStream in = new FileInputStream(tmp); OutputStream os = getContentResolver().openOutputStream(out)) {
-                copy(in, os);
-            }
-            ContentValues done = new ContentValues();
-            done.put("is_pending", 0);
-            getContentResolver().update(out, done, null, null);
-            return "Movies/MyCutter/" + name;
-        }
-        File dir = getExternalFilesDir(Environment.DIRECTORY_MOVIES);
-        if (dir == null) throw new IllegalStateException("無可用儲存空間");
-        //noinspection ResultOfMethodCallIgnored
-        dir.mkdirs();
-        File dst = new File(dir, name);
-        try (InputStream in = new FileInputStream(tmp); OutputStream os = new java.io.FileOutputStream(dst)) {
-            copy(in, os);
-        }
-        return dst.getAbsolutePath();
-    }
-
-    private static void copy(InputStream in, OutputStream out) throws Exception {
-        byte[] b = new byte[256 * 1024];
-        int n;
-        while ((n = in.read(b)) > 0) out.write(b, 0, n);
-        out.flush();
+        status.setText("匯出中 0%（可切到背景或鎖屏）");
     }
 
     // ---------------------------------------------------------------- helpers
