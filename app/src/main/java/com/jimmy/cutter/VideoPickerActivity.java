@@ -69,6 +69,7 @@ public class VideoPickerActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        AppLog.init(this);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         buildUi();
@@ -94,6 +95,7 @@ public class VideoPickerActivity extends Activity {
     }
 
     @Override public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        AppLog.i("PICKER", "權限結果 granted=" + (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED));
         if (req == REQ_PERM && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
             load();
         } else {
@@ -191,6 +193,7 @@ public class VideoPickerActivity extends Activity {
         list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override public void onItemClick(AdapterView<?> p, View v, int pos, long id) {
                 Item it = shown.get(pos);
+                AppLog.i("PICKER", "選擇 " + it.name + " uri=" + it.uri);
                 setResult(RESULT_OK, new Intent().setData(it.uri));
                 finish();
             }
@@ -272,6 +275,7 @@ public class VideoPickerActivity extends Activity {
                 } catch (Exception ignored) { }
                 ui.post(new Runnable() {
                     @Override public void run() {
+                        AppLog.i("PICKER", "媒體庫查詢到 " + found.size() + " 部影片");
                         all.clear();
                         all.addAll(found);
                         refresh();

@@ -39,6 +39,15 @@ public final class Cutter {
         long total = 0;
         for (long[] s : segments) total += Math.max(1, s[1] - s[0]);
 
+        long t0 = System.currentTimeMillis();
+        AppLog.i("CUT", "開始匯出 segments=" + segments.size() + " audioKeep=" + audioKeep
+                + " container=" + info.containerMime + " rotation=" + info.rotation
+                + " 輸入大小=" + info.sizeBytes);
+        for (int k = 0; k < segments.size(); k++) {
+            long[] sg = segments.get(k);
+            AppLog.i("CUT", "  片段" + (k + 1) + " " + sg[0] + "us -> " + sg[1] + "us");
+        }
+
         MediaExtractor ex = new MediaExtractor();
         MediaMuxer mux = null;
         boolean started = false;
@@ -60,6 +69,7 @@ public final class Cutter {
                 else if (mime.startsWith("audio/") && audioKeep.contains(i)) { take = true; }
                 if (take) {
                     map[i] = mux.addTrack(f);
+                    AppLog.i("CUT", "  加入軌道 src=" + i + " -> mux=" + map[i] + " " + f);
                     ex.selectTrack(i);
                     res.keptTracks++;
                     if (f.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
@@ -76,13 +86,18 @@ public final class Cutter {
             ByteBuffer buf = ByteBuffer.allocate(bufSize);
             MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
             long offset = 0, doneUs = 0;
+            long[] lastOut = new long[n];
+            java.util.Arrays.fill(lastOut, Long.MIN_VALUE);
+            int segNo = 0;
 
             for (long[] seg : segments) {
+                segNo++;
                 long s = seg[0], e = seg[1];
+                int[] cnt = new int[n];
+                long[] lastRel = new long[n];
                 ex.seekTo(s, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
                 boolean[] done = new boolean[n];
                 int remaining = res.keptTracks;
-                long lastVideo = s;
                 while (remaining > 0) {
                     int ti = ex.getSampleTrackIndex();
                     if (ti < 0) break;
@@ -99,19 +114,40 @@ public final class Cutter {
                     bi.offset = 0;
                     bi.size = ex.readSampleData(buf, 0);
                     if (bi.size < 0) break;
-                    bi.presentationTimeUs = t - s + offset;
+                    long outPts = t - s + offset;
+                    // 音訊等非影片軌必須嚴格遞增（影片有 B-frame，不在此限）
+                    if (!isVideo && lastOut[ti] != Long.MIN_VALUE && outPts <= lastOut[ti]) outPts = lastOut[ti] + 1;
+                    lastOut[ti] = Math.max(lastOut[ti], outPts);
+                    bi.presentationTimeUs = outPts;
                     bi.flags = (ex.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0
                             ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0;
-                    mux.writeSampleData(map[ti], buf, bi);
+                    try {
+                        mux.writeSampleData(map[ti], buf, bi);
+                    } catch (RuntimeException we) {
+                        AppLog.e("CUT", String.format(java.util.Locale.US,
+                                "writeSampleData 失敗 seg=%d track=%d(mux %d) srcT=%d outPts=%d size=%d flags=%d offset=%d "
+                                        + "cnt=%d lastRel=%d 已寫入=%d", segNo, ti, map[ti], t, outPts, bi.size,
+                                bi.flags, offset, cnt[ti], lastRel[ti], res.outBytes), we);
+                        throw we;
+                    }
                     res.outBytes += bi.size;
+                    cnt[ti]++;
+                    lastRel[ti] = Math.max(lastRel[ti], t - s);
                     if (isVideo) {
-                        lastVideo = Math.max(lastVideo, t);
                         if (cb != null) cb.onProgress(Math.min(1f, (doneUs + (t - s)) / (float) total));
                     }
                     ex.advance();
                 }
-                long len = Math.max(0, lastVideo - s) + FRAME_GAP_US;
-                offset += len;
+                // 下一段的起點 = 本段所有軌道中最晚的一筆 + 一格，才不會讓任一軌的時間戳倒退
+                long maxRel = 0;
+                StringBuilder sb = new StringBuilder();
+                for (int k = 0; k < n; k++) {
+                    if (map[k] < 0) continue;
+                    maxRel = Math.max(maxRel, lastRel[k]);
+                    sb.append(" 軌").append(k).append(":").append(cnt[k]).append("筆/last=").append(lastRel[k]);
+                }
+                AppLog.i("CUT", "  片段" + segNo + "完成" + sb + " offset=" + offset);
+                offset += maxRel + FRAME_GAP_US;
                 doneUs += Math.max(1, e - s);
             }
         } finally {
@@ -120,6 +156,7 @@ public final class Cutter {
             ex.release();
         }
         res.outBytes = out.length();
+        AppLog.i("CUT", "匯出完成 輸出=" + res.outBytes + " 耗時=" + (System.currentTimeMillis() - t0) + "ms");
         return res;
     }
 }

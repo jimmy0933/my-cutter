@@ -1,6 +1,10 @@
 package com.jimmy.cutter;
 
 import android.app.Activity;
+import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -41,7 +45,7 @@ import java.util.Locale;
 public class MainActivity extends Activity implements View.OnClickListener {
     private static final int REQ_PICK = 1;
     private static final int A_PICK = 1, A_PLAY = 2, A_PREV = 3, A_NEXT = 4, A_START = 5,
-            A_END = 6, A_ADD = 7, A_EXPORT = 8, A_GALLERY = 9, A_CHOOSER = 10, A_LIBRARY = 11;
+            A_END = 6, A_ADD = 7, A_EXPORT = 8, A_GALLERY = 9, A_CHOOSER = 10, A_LIBRARY = 11, A_SEGS = 12, A_SETTINGS = 13;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<long[]> segments = new ArrayList<>();
@@ -53,7 +57,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
     private VideoView video;
     private TextView timeLabel, infoLabel, selLabel, status;
-    private Button btnPlay, btnExport;
+    private Button btnPlay, btnExport, btnStart, btnEnd, btnGear, btnPrevL, btnNextL, btnAddL, btnSegsL;
+    private LinearLayout landBar;
+    private Dialog segDialog;
     private LinearLayout segList;
     private LinearLayout audioBox;
     private final List<CheckBox> audioChecks = new ArrayList<>();
@@ -71,7 +77,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        AppLog.init(this);
         CrashReporter.install(this);
+        AppLog.i("APP", "啟動\n" + AppLog.header(this));
         try {
             buildUi();
         } catch (Throwable t) {
@@ -177,6 +185,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
             case A_END: setEnd(); break;
             case A_ADD: addSegment(); break;
             case A_EXPORT: export(); break;
+            case A_SEGS: showSegDialog(); break;
+            case A_SETTINGS: showSettings(); break;
             default: break;
         }
     }
@@ -185,15 +195,15 @@ public class MainActivity extends Activity implements View.OnClickListener {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
 
-        header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.VERTICAL);
-
-        // 標題
-        TextView title = text("無損剪輯", 24, TEXT, true);
-        header.addView(title);
+        headerRow = row();
+        LinearLayout titleCol = new LinearLayout(this);
+        titleCol.setOrientation(LinearLayout.VERTICAL);
+        titleCol.addView(text("無損剪輯", 24, TEXT, true));
         String ver = "";
         try { ver = " v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
-        header.addView(text("不重新編碼 · 畫質不變 · 檔案更小" + ver, 12, MUTED, false));
+        titleCol.addView(text("不重新編碼 · 畫質不變 · 檔案更小" + ver, 12, MUTED, false));
+        headerRow.addView(titleCol, new LinearLayout.LayoutParams(0, -2, 1f));
+        btnGear = button("⚙ 設定", A_SETTINGS, 1);
 
         // 選擇來源
         pickCard = card();
@@ -241,13 +251,17 @@ public class MainActivity extends Activity implements View.OnClickListener {
         timeLabel.setGravity(Gravity.CENTER);
         player.addView(timeLabel);
 
-        LinearLayout r1 = ctrlRow = row();
-        r1.setPadding(0, dp(10), 0, 0);
+        ctrlRow = row();
         btnPlay = button("▶ 播放", A_PLAY, 0);
-        addWeighted(r1, button("[ 設為起點", A_START, 1));
-        addWeighted(r1, btnPlay);
-        addWeighted(r1, button("設為終點 ]", A_END, 1));
-        player.addView(r1);
+        btnStart = button("[ 設為起點", A_START, 1);
+        btnEnd = button("設為終點 ]", A_END, 1);
+
+        // 橫向專用：把所有操作併成一排
+        landBar = row();
+        btnPrevL = button("◀ 關鍵幀", A_PREV, 1);
+        btnNextL = button("關鍵幀 ▶", A_NEXT, 1);
+        btnAddL = button("＋ 片段", A_ADD, 0);
+        btnSegsL = button("片段/匯出", A_SEGS, 1);
 
         pickBar = row();
         addWeighted(pickBar, button("影片庫", A_LIBRARY, 0));
@@ -307,7 +321,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         applyLayout();
     }
 
-    private LinearLayout header, pickCard, player, selCard, segCard, outCard, pickBar, ctrlRow;
+    private LinearLayout headerRow, pickCard, player, selCard, segCard, outCard, pickBar, ctrlRow;
     private FrameLayout frame;
 
     private void detach(View v) {
@@ -321,68 +335,100 @@ public class MainActivity extends Activity implements View.OnClickListener {
         return lp;
     }
 
-    /** 直向：單欄捲動。橫向：左側「選影片列＋預覽＋時間軸＋控制」，右側控制面板（可捲動）。 */
+    private void compact(Button b, boolean land) {
+        b.setTextSize(land ? 12 : 14);
+        int h = land ? dp(4) : dp(10), v = land ? dp(8) : dp(10);
+        b.setPadding(h, v, h, v);
+    }
+
+    private void overlayStyle(TextView t, int sp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0x99000000);
+        g.setCornerRadius(dp(8));
+        t.setBackground(g);
+        t.setTextSize(sp);
+        t.setPadding(dp(8), dp(2), dp(8), dp(2));
+    }
+
+    /**
+     * 直向：單欄捲動。
+     * 橫向：沒有側欄，頂端一排選影片＋設定，預覽盡量鋪滿，所有操作併成預覽下方一排；片段/匯出改用彈出視窗。
+     */
     private void applyLayout() {
         boolean land = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         // 重排版面會讓 VideoView 重建 surface，先記下播放狀態再還原
         int pos = video.getCurrentPosition();
         boolean playing = video.isPlaying();
+        if (segDialog != null && segDialog.isShowing()) segDialog.dismiss();
 
-        View[] all = {header, pickCard, player, selCard, segCard, outCard, pickBar, timeLabel, infoLabel};
+        View[] all = {headerRow, pickCard, player, selCard, segCard, outCard, pickBar, timeLabel, infoLabel,
+                selLabel, btnGear, btnStart, btnPlay, btnEnd, btnPrevL, btnNextL, btnAddL, btnSegsL, ctrlRow, landBar};
         for (View v : all) detach(v);
+        ctrlRow.removeAllViews();
+        landBar.removeAllViews();
         timeline.setCompact(land);
         applyImmersive(land);
 
-        // 時間文字：橫向疊在預覽底部，直向放在時間軸下方
+        Button[] bs = {btnStart, btnPlay, btnEnd, btnPrevL, btnNextL, btnAddL, btnSegsL, btnGear};
+        for (Button b : bs) compact(b, land);
+        for (int i = 0; i < pickBar.getChildCount(); i++) compact((Button) pickBar.getChildAt(i), land);
+
         if (land) {
-            GradientDrawable tg = new GradientDrawable();
-            tg.setColor(0x99000000);
-            tg.setCornerRadius(dp(8));
-            timeLabel.setBackground(tg);
-            timeLabel.setTextSize(13);
-            timeLabel.setPadding(dp(8), dp(2), dp(8), dp(2));
+            // 時間與選取範圍疊在預覽上
+            overlayStyle(timeLabel, 13);
             frame.addView(timeLabel, new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL));
-            ctrlRow.setPadding(0, dp(4), 0, 0);
+            overlayStyle(selLabel, 12);
+            selLabel.setTextSize(12);
+            FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+            sl.leftMargin = dp(6);
+            sl.topMargin = dp(6);
+            frame.addView(selLabel, sl);
+
+            addWeighted(landBar, btnPrevL);
+            addWeighted(landBar, btnStart);
+            addWeighted(landBar, btnPlay);
+            addWeighted(landBar, btnEnd);
+            addWeighted(landBar, btnNextL);
+            addWeighted(landBar, btnAddL);
+            addWeighted(landBar, btnSegsL);
+            landBar.setPadding(0, dp(4), 0, 0);
+            player.addView(landBar, new LinearLayout.LayoutParams(-1, -2));
+
+            frame.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1f));
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setBackgroundColor(BG);
+            root.setPadding(dp(22), dp(4), dp(22), dp(4));
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-2, -2);
+            gp.leftMargin = dp(6);
+            pickBar.addView(btnGear, gp);
+            root.addView(pickBar, new LinearLayout.LayoutParams(-1, -2));
+            player.setPadding(dp(6), dp(6), dp(6), dp(6));
+            root.addView(player, cardParams(-1, 0, 1f, 4));
+            setContentView(root);
         } else {
             timeLabel.setBackground(null);
             timeLabel.setTextSize(16);
             timeLabel.setPadding(0, 0, 0, 0);
-            player.addView(timeLabel, 2, new LinearLayout.LayoutParams(-1, -2));
+            player.addView(timeLabel, new LinearLayout.LayoutParams(-1, -2));
+
+            addWeighted(ctrlRow, btnStart);
+            addWeighted(ctrlRow, btnPlay);
+            addWeighted(ctrlRow, btnEnd);
             ctrlRow.setPadding(0, dp(10), 0, 0);
-        }
+            player.addView(ctrlRow, new LinearLayout.LayoutParams(-1, -2));
 
-        if (land) {
-            frame.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1f));
-            LinearLayout root = new LinearLayout(this);
-            root.setOrientation(LinearLayout.HORIZONTAL);
-            root.setBackgroundColor(BG);
-            root.setPadding(dp(22), dp(4), dp(22), dp(4));
+            selLabel.setBackground(null);
+            selLabel.setTextSize(18);
+            selLabel.setPadding(0, dp(4), 0, dp(8));
+            selCard.addView(selLabel, 1);
 
-            LinearLayout left = new LinearLayout(this);
-            left.setOrientation(LinearLayout.VERTICAL);
-            left.addView(pickBar, new LinearLayout.LayoutParams(-1, -2));
-            player.setPadding(dp(6), dp(6), dp(6), dp(6));
-            left.addView(player, cardParams(-1, 0, 1f, 4));
-            root.addView(left, new LinearLayout.LayoutParams(0, -1, 3f));
-
-            ScrollView right = new ScrollView(this);
-            LinearLayout col = new LinearLayout(this);
-            col.setOrientation(LinearLayout.VERTICAL);
-            col.setPadding(dp(12), 0, 0, dp(16));
-            right.addView(col);
-            col.addView(header, new LinearLayout.LayoutParams(-1, -2));
-            infoLabel.setPadding(0, dp(8), 0, 0);
-            col.addView(infoLabel, new LinearLayout.LayoutParams(-1, -2));
-            col.addView(selCard, cardParams(-1, -2, 0f, 10));
-            col.addView(segCard, cardParams(-1, -2, 0f, 10));
-            col.addView(outCard, cardParams(-1, -2, 0f, 10));
-            root.addView(right, new LinearLayout.LayoutParams(0, -1, 1.15f));
-            setContentView(root);
-        } else {
             frame.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(220)));
             player.setPadding(dp(8), dp(8), dp(8), dp(8));
             infoLabel.setPadding(0, dp(10), 0, 0);
             pickCard.addView(infoLabel);
+            headerRow.addView(btnGear, new LinearLayout.LayoutParams(-2, -2));
+
             ScrollView scroll = new ScrollView(this);
             scroll.setBackgroundColor(BG);
             scroll.setFillViewport(true);
@@ -390,7 +436,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
             root.setOrientation(LinearLayout.VERTICAL);
             root.setPadding(dp(14), dp(16), dp(14), dp(28));
             scroll.addView(root);
-            root.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            root.addView(headerRow, new LinearLayout.LayoutParams(-1, -2));
             root.addView(pickCard, cardParams(-1, -2, 0f, 12));
             root.addView(player, cardParams(-1, -2, 0f, 12));
             root.addView(selCard, cardParams(-1, -2, 0f, 12));
@@ -404,6 +450,82 @@ public class MainActivity extends Activity implements View.OnClickListener {
             video.seekTo(pos);
             if (playing) video.start();
         }
+    }
+
+    // ---------------------------------------------------------------- dialogs
+
+    private Dialog fullDialog(String title, View content) {
+        final Dialog d = new Dialog(this, android.R.style.Theme_Material_NoActionBar);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+        root.setPadding(dp(16), dp(10), dp(16), dp(10));
+        LinearLayout top = row();
+        top.addView(text(title, 18, TEXT, true), new LinearLayout.LayoutParams(0, -2, 1f));
+        Button close = button("關閉", 0, 1);
+        close.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { d.dismiss(); }
+        });
+        top.addView(close, new LinearLayout.LayoutParams(-2, -2));
+        root.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(content);
+        root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+        d.setContentView(root);
+        return d;
+    }
+
+    /** 橫向時，片段列表／音軌／匯出放在這個視窗裡。 */
+    private void showSegDialog() {
+        detach(infoLabel);
+        detach(segCard);
+        detach(outCard);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        infoLabel.setPadding(0, dp(4), 0, 0);
+        col.addView(infoLabel, new LinearLayout.LayoutParams(-1, -2));
+        col.addView(segCard, cardParams(-1, -2, 0f, 10));
+        col.addView(outCard, cardParams(-1, -2, 0f, 10));
+        segDialog = fullDialog("片段與匯出", col);
+        segDialog.show();
+    }
+
+    private void showSettings() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView head = text(AppLog.header(this), 12, MUTED, false);
+        head.setTextIsSelectable(true);
+        col.addView(head);
+
+        final TextView log = text(AppLog.readNewestFirst(80000), 10, TEXT, false);
+        log.setTypeface(Typeface.MONOSPACE);
+        log.setTextIsSelectable(true);
+
+        LinearLayout r = row();
+        r.setPadding(0, dp(10), 0, dp(6));
+        Button copy = button("複製日誌", 0, 0);
+        copy.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String all = AppLog.header(MainActivity.this) + "\n\n" + AppLog.read();
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(ClipData.newPlainText("my-cutter log", all));
+                toast("已複製 " + all.length() + " 字元");
+            }
+        });
+        Button clear = button("清除日誌", 0, 1);
+        clear.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                AppLog.clear();
+                log.setText("");
+                toast("已清除");
+            }
+        });
+        addWeighted(r, copy);
+        addWeighted(r, clear);
+        col.addView(r);
+        col.addView(text("日誌（最新在最上方；複製時為完整、依時間排序）", 11, MUTED, false));
+        col.addView(log);
+        fullDialog("設定 / 日誌", col).show();
     }
 
     /** 橫向：隱藏狀態列／導覽列並延伸到鏡頭孔區域，讓預覽盡量大。 */
@@ -492,6 +614,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
             r.addView(del);
             segList.addView(r);
         }
+        btnSegsL.setText(segments.isEmpty() ? "片段/匯出" : "片段(" + segments.size() + ")/匯出");
         timeline.setSegments(segments);
         setExportEnabled(!segments.isEmpty());
         if (!segments.isEmpty() && info != null) {
@@ -539,6 +662,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
     private void load(final Uri u) {
         uri = u;
         info = null;
+        AppLog.i("LOAD", "載入 " + u);
         segments.clear();
         refreshSegments();
         setExportEnabled(false);
@@ -558,6 +682,9 @@ public class MainActivity extends Activity implements View.OnClickListener {
                     ui.post(new Runnable() {
                         @Override public void run() {
                             info = vi;
+                            AppLog.videoSummary = vi.containerMime + " " + size(vi.sizeBytes) + " " + fmt(vi.durationUs)
+                                    + " 關鍵幀" + vi.keyframes.length + " 旋轉" + vi.rotation + "\n" + vi.description;
+                            AppLog.i("LOAD", "分析完成 " + AppLog.videoSummary);
                             showAudioTracks(vi);
                             timeline.setData(vi.durationUs, vi.keyframes);
                             selStartUs = vi.keyframes.length > 0 ? vi.keyframes[0] : 0;
@@ -570,6 +697,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
                         }
                     });
                 } catch (final Exception e) {
+                    AppLog.e("LOAD", "分析失敗", e);
                     ui.post(new Runnable() {
                         @Override public void run() { status.setText("分析失敗：" + e.getMessage()); }
                     });
@@ -617,6 +745,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         if (info == null) return;
         if (selEndUs <= selStartUs) { toast("終點必須在起點之後"); return; }
         segments.add(new long[]{selStartUs, selEndUs});
+        AppLog.i("EDIT", "加入片段 " + selStartUs + " -> " + selEndUs);
         refreshSegments();
     }
 
@@ -640,6 +769,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         final VideoInfo vi = info;
         final Uri src = uri;
         final boolean webm = vi.containerMime.contains("webm");
+        AppLog.i("EXPORT", "按下匯出 片段數=" + segs.size() + " 音軌=" + audio);
         status.setText("匯出中 0%");
         new Thread(new Runnable() {
             @Override public void run() {
@@ -660,12 +790,14 @@ public class MainActivity extends Activity implements View.OnClickListener {
                     final String msg = String.format(Locale.US, "完成：%s\n原檔 %s → 輸出 %s（約省 %d%%）",
                             where, size(vi.sizeBytes), size(r.outBytes),
                             vi.sizeBytes > 0 ? (int) (100 - r.outBytes * 100.0 / vi.sizeBytes) : 0);
+                    AppLog.i("EXPORT", msg);
                     ui.post(new Runnable() {
-                        @Override public void run() { progress.setVisibility(View.GONE); status.setText(msg); setExportEnabled(true); }
+                        @Override public void run() { progress.setVisibility(View.GONE); status.setText(msg); setExportEnabled(true); toast("匯出完成"); }
                     });
                 } catch (final Exception e) {
+                    AppLog.e("EXPORT", "匯出失敗", e);
                     ui.post(new Runnable() {
-                        @Override public void run() { progress.setVisibility(View.GONE); status.setText("匯出失敗：" + e); setExportEnabled(true); }
+                        @Override public void run() { progress.setVisibility(View.GONE); status.setText("匯出失敗：" + e + "\n（到右上角「設定」可複製日誌）"); setExportEnabled(true); toast("匯出失敗，請看日誌"); }
                     });
                 } finally {
                     //noinspection ResultOfMethodCallIgnored

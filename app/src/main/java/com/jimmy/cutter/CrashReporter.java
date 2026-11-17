@@ -25,6 +25,7 @@ final class CrashReporter {
     }
 
     static void save(Context ctx, Throwable e) {
+        AppLog.e("CRASH", "未捕捉的例外", e);
         try {
             StringWriter sw = new StringWriter();
             e.printStackTrace(new PrintWriter(sw));
